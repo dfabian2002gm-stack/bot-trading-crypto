@@ -40,7 +40,7 @@ take_profit = 0.0
 trailing_stop = 0.0
 highest_price = 0.0
 
-exchange = ccxt.binance()
+exchange = ccxt.kraken()
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
