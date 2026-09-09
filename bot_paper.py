@@ -175,11 +175,6 @@ def bot_loop():
             print(f"Error en bucle: {e}")
             time.sleep(10)
 
-if __name__ == "__main__":
-    # Inicia Flask en un hilo separado
-    t = threading.Thread(target=run_flask)
-    t.daemon = True
-    t.start()
-    
-    # Inicia el bucle principal del bot
-    bot_loop()
+# Iniciar el bucle del bot en un hilo en segundo plano al cargar el módulo en Render
+bot_thread = threading.Thread(target=bot_loop, daemon=True)
+bot_thread.start()
