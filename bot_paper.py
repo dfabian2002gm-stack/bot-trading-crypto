@@ -1,34 +1,40 @@
 import os
 import time
+import datetime
 import io
 import requests
 import ccxt
 import pandas as pd
 import numpy as np
 import matplotlib
-matplotlib.use('Agg') # Modo sin interfaz gráfica para que funcione perfectamente en la nube
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from flask import Flask
 from xgboost import XGBClassifier
 
-# --- CONFIGURACIÓN DESDE VARIABLES DE ENTORNO ---
+# --- CONFIGURACIÓN DE ENTORNO ---
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 BINANCE_API_KEY = os.environ.get("BINANCE_TESTNET_API_KEY")
 BINANCE_SECRET = os.environ.get("BINANCE_TESTNET_SECRET")
 
-# Configuración estricta para cuenta simulada de $50 USD
+# Configuración de Capital y Riesgo Diario
 INITIAL_CAPITAL = 50.0 
-LEVERAGE = 2  # Apalancamiento conservador 2x
+LEVERAGE = 2  
+PROFIT_TARGET_PCT = 0.20  # +20% meta de ganancia diaria
+MAX_LOSS_PCT = -0.10      # -10% límite máximo de pérdida diaria
 
-# Servidor Flask simple para mantener vivo el servicio en Render
+# Variables de control de estado diario
+current_day = None
+starting_daily_balance = None
+trading_halted_today = False
+
 app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Bot de Trading (1H) con gráficos para Telegram + IA", 200
+    return "Bot de Trading con Control de Riesgo Diario + IA", 200
 
-# --- CONFIGURACIÓN DEL EXCHANGE EN MODO TESTNET ---
 exchange = ccxt.binance({
     'apiKey': BINANCE_API_KEY,
     'secret': BINANCE_SECRET,
@@ -38,22 +44,16 @@ exchange = ccxt.binance({
 exchange.set_sandbox_mode(True)
 
 def send_telegram_message(message):
-    """Envía notificaciones de texto al chat de Telegram."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown"
-    }
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
     try:
         requests.post(url, json=payload, timeout=10)
     except Exception as e:
-        print(f"Error al enviar mensaje a Telegram: {e}")
+        print(f"Error Telegram msg: {e}")
 
 def send_telegram_photo(photo_bytes, caption):
-    """Envía una imagen generada con gráficos directamente a Telegram."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
@@ -62,32 +62,26 @@ def send_telegram_photo(photo_bytes, caption):
     try:
         requests.post(url, data=data, files=files, timeout=15)
     except Exception as e:
-        print(f"Error al enviar foto a Telegram: {e}")
+        print(f"Error Telegram photo: {e}")
 
 def get_fear_and_greed_index():
-    """Consulta el índice de Miedo y Codicia del mercado cripto."""
     try:
         url = "https://api.alternative.me/fng/?limit=1"
         response = requests.get(url, timeout=10)
         data = response.json()
         if "data" in data and len(data["data"]) > 0:
-            value = int(data["data"][0]["value"])
-            classification = data["data"][0]["value_classification"]
-            return value, classification
-    except Exception as e:
-        print(f"No se pudo obtener el Fear & Greed Index: {e}")
+            return int(data["data"][0]["value"]), data["data"][0]["value_classification"]
+    except Exception:
+        pass
     return 50, "Neutral"
 
 def fetch_data():
-    """Descarga velas de 1h de BTC/USDT desde la Testnet de Binance."""
-    # CAMBIO 1: Modificado de '4h' a '1h'
     bars = exchange.fetch_ohlcv('BTC/USDT', timeframe='1h', limit=500)
     df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
     return df
 
 def calculate_indicators(df):
-    """Añade indicadores técnicos avanzados al DataFrame."""
     delta = df['close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -106,24 +100,19 @@ def calculate_indicators(df):
     high_close = np.abs(df['high'] - df['close'].shift())
     low_close = np.abs(df['low'] - df['close'].shift())
     ranges = pd.concat([high_low, high_close, low_close], axis=1)
-    true_range = np.max(ranges, axis=1)
-    df['atr'] = true_range.rolling(14).mean()
+    df['atr'] = np.max(ranges, axis=1).rolling(14).mean()
 
     df.dropna(inplace=True)
     return df
 
 def generate_chart(df):
-    """Genera un gráfico limpio de precios y EMAs para enviar por Telegram."""
     plt.figure(figsize=(10, 5))
     plt.style.use('dark_background')
-    
-    # Tomamos las últimas 60 velas (60 horas) para que el gráfico se vea detallado
     subset = df.tail(60)
     plt.plot(subset['timestamp'], subset['close'], label='Precio BTC', color='#00ffcc', linewidth=1.5)
     plt.plot(subset['timestamp'], subset['ema_20'], label='EMA 20', color='#ff007f', linewidth=1)
     plt.plot(subset['timestamp'], subset['ema_50'], label='EMA 50', color='#ffcc00', linewidth=1)
-    
-    plt.title('Análisis Técnico (1H) - Bot Testnet ($50)', fontsize=12, color='white')
+    plt.title('Control Diario de Riesgo - Bot IA ($50 Base)', fontsize=12, color='white')
     plt.xlabel('Fecha / Hora', color='gray')
     plt.ylabel('Precio (USDT)', color='gray')
     plt.legend(loc='upper left')
@@ -139,11 +128,49 @@ def generate_chart(df):
     return buf.read()
 
 def run_trading_bot():
+    global current_day, starting_daily_balance, trading_halted_today
+    
     try:
-        print("Ejecutando ciclo (1H) del bot con cuenta de $50...")
+        now = datetime.datetime.utcnow().date()
+        
+        # Obtener balance actual de la cuenta en Binance
+        balance_info = exchange.fetch_balance()
+        total_wallet_balance = float(balance_info['total']['USDT'])
+        
+        # Ajuste de control diario (reinicio a medianoche UTC)
+        if current_day != now:
+            current_day = now
+            starting_daily_balance = total_wallet_balance
+            trading_halted_today = False
+            send_telegram_message(f"🌅 *Nuevo día de trading ({current_day})*\nBalance inicial del día registrado: `${total_wallet_balance:,.2f} USDT`")
+
+        # Calcular rendimiento diario actual
+        daily_pnl_pct = (total_wallet_balance - starting_daily_balance) / starting_daily_balance if starting_daily_balance > 0 else 0
+
+        # Verificar si ya se alcanzó la meta o el límite de pérdida del día
+        if daily_pnl_pct >= PROFIT_TARGET_PCT:
+            if not trading_halted_today:
+                trading_halted_today = True
+                send_telegram_message(f"🎯 *¡Meta diaria del +20% alcanzada!* (${total_wallet_balance:,.2f} USDT). El bot pausará operaciones hasta mañana para asegurar ganancias.")
+            return
+
+        if daily_pnl_pct <= MAX_LOSS_PCT:
+            if not trading_halted_today:
+                trading_halted_today = True
+                # Cerrar posiciones abiertas de emergencia por seguridad del límite diario
+                positions = exchange.fetch_positions()
+                for p in positions:
+                    if p['symbol'] == 'BTC/USDT:USDT' and float(p['contracts']) > 0:
+                        exchange.create_market_sell_order('BTC/USDT', float(p['contracts']))
+                send_telegram_message(f"🛑 *Límite de pérdida diaria alcanzado ({daily_pnl_pct*100:.1f}%)*. Posiciones cerradas. El bot descansa hasta mañana.")
+            return
+
+        if trading_halted_today:
+            return  # Si ya cumplió meta o tocó pérdida, no opera más hoy
+
+        # Análisis de mercado habitual con IA
         df = fetch_data()
         df = calculate_indicators(df)
-        
         current_price = df['close'].iloc[-1]
         fg_value, fg_text = get_fear_and_greed_index()
         
@@ -152,10 +179,8 @@ def run_trading_bot():
         except Exception:
             pass
         
-        # Preparar Machine Learning (XGBoost)
         df['target'] = np.where(df['close'].shift(-1) > df['close'], 1, 0)
         features = ['rsi', 'ema_20', 'ema_50', 'macd', 'macd_signal', 'atr']
-        
         X = df[features].iloc[:-1]
         y = df['target'].iloc[:-1]
         
@@ -165,52 +190,46 @@ def run_trading_bot():
         latest_features = df[features].iloc[[-1]]
         prediction = model.predict(latest_features)[0]
         
-        # Consultar posiciones abiertas en Testnet
         positions = exchange.fetch_positions()
         btc_position = next((p for p in positions if p['symbol'] == 'BTC/USDT:USDT' and float(p['contracts']) > 0), None)
         
         report_msg = (
-            f"⏱️ *Reporte de Análisis (1 Hora)*\n"
-            f"🧪 *Cuenta Testnet ($50 Base)*\n"
+            f"📊 *Monitoreo Activo (Control Diario)*\n"
+            f"• Balance actual: `${total_wallet_balance:,.2f} USDT`\n"
+            f"• Rendimiento hoy: `{daily_pnl_pct*100:+.2f}%` (Meta: +20% | Límite: -10%)\n"
             f"• Precio BTC: `${current_price:,.2f}`\n"
-            f"• Sentimiento: `{fg_value} / 100 ({fg_text})`\n"
         )
         
         if not btc_position:
             if fg_text in ["Extreme Greed", "Extreme Fear"]:
-                report_msg += f"⚠️ *Filtro activado:* Mercado en {fg_text}. Operación pausada."
+                report_msg += f"⚠️ *Filtro de Sentimiento:* Mercado en {fg_text}."
             elif prediction == 1:
                 amount = 0.001 
                 exchange.create_market_buy_order('BTC/USDT', amount)
-                report_msg += f"🟢 *Orden LONG ejecutada* (`0.001 BTC` a `${current_price:,.2f}`)"
+                report_msg += f"🟢 *Orden LONG abierta* (`0.001 BTC`)"
             else:
-                report_msg += "⚪ *Sin posición:* Esperando señal de compra de la IA."
+                report_msg += "⚪ *Buscando entradas:* IA en espera."
         else:
             entry_price = float(btc_position['entryPrice'])
             pnl_pct = (current_price - entry_price) / entry_price * LEVERAGE
-            
             if pnl_pct <= -0.015 or pnl_pct >= 0.03:
                 exchange.create_market_sell_order('BTC/USDT', float(btc_position['contracts']))
-                action_type = "Stop-Loss 🔴" if pnl_pct <= -0.015 else "Take-Profit 🔵"
-                report_msg += f"🏁 *{action_type}*. Cerrada con PnL: `{pnl_pct*100:+.2f}%`"
+                report_msg += f"🏁 Posición cerrada por Take-Profit/Stop-Loss técnico. PnL: `{pnl_pct*100:+.2f}%`"
             else:
-                report_msg += f"📈 *Manteniendo posición*. PnL actual: `{pnl_pct*100:+.2f}%`"
+                report_msg += f"📈 Posición abierta. PnL actual: `{pnl_pct*100:+.2f}%`"
                 
-        # Generar imagen del gráfico y enviarla a Telegram junto al texto
         chart_bytes = generate_chart(df)
         send_telegram_photo(chart_bytes, report_msg)
         
     except Exception as e:
-        print(f"Error en el ciclo del bot: {e}")
-        send_telegram_message(f"⚠️ *Error en Bot Testnet:* `{str(e)}`")
+        print(f"Error en ciclo: {e}")
 
 def background_loop():
     import threading
     def worker():
         while True:
             run_trading_bot()
-            # CAMBIO 2: Esperar 1 hora (3600 segundos) en lugar de 4 horas
-            time.sleep(3600) 
+            time.sleep(300) # Revisa el mercado constantemente cada 5 minutos sin apagar el script
             
     t = threading.Thread(target=worker, daemon=True)
     t.start()
