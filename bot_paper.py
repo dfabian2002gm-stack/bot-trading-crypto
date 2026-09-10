@@ -275,7 +275,9 @@ def bot_loop():
         except Exception as e:
             print(f"Error en bucle: {e}")
             time.sleep(10)
-
 # Iniciar el bucle del bot en un hilo en segundo plano al cargar el módulo en Render
 bot_thread = threading.Thread(target=bot_loop, daemon=True)
 bot_thread.start()
+
+if __name__ == "__main__":
+    run_flask()
