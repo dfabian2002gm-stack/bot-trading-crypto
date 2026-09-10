@@ -132,7 +132,7 @@ def trading_loop():
                     send_telegram_message(mensaje)
 
             elif posicion_actual == "LONG":
-                # Condición de cierre para LONG (si la IA se vuelve bajista o toma ganancia/pérdida analítica)
+                # Condición de cierre para LONG (si la IA se vuelve bajista)
                 if prediction_prob < 0.48:
                     pnl = (precio_actual - precio_entrada) * cantidad_btc
                     saldo_virtual += pnl
@@ -184,11 +184,10 @@ def trading_loop():
         # Esperar 30 minutos antes de la siguiente ejecución
         time.sleep(1800)
 
+# Iniciar el hilo del bot automáticamente al importar el módulo (para Gunicorn)
+t = threading.Thread(target=trading_loop)
+t.daemon = True
+t.start()
+
 if __name__ == '__main__':
-    # Hilo secundario para ejecutar el bucle de trading de forma autónoma
-    t = threading.Thread(target=trading_loop)
-    t.daemon = True
-    t.start()
-    
-    # Servidor Flask principal para atender las peticiones web (Render / UptimeRobot)
     run_flask()
