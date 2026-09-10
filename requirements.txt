@@ -1,9 +1,8 @@
 ccxt
-xgboost
-numpy
 pandas
-requests
-flask
-scikit-learn
-gunicorn
+numpy
 matplotlib
+flask
+xgboost
+requests
+gunicorn
