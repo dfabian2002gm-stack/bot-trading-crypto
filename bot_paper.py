@@ -40,12 +40,15 @@ apalancamiento = 2.0
 cantidad_btc = 0.0
 
 def send_telegram_message(message):
+    print(f"DEBUG -> Token configurado: {bool(TELEGRAM_TOKEN)} | Chat ID configurado: {bool(TELEGRAM_CHAT_ID)}")
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+        print("ERROR: Faltan las credenciales de Telegram en las variables de entorno.")
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
     try:
-        requests.post(url, json=payload, timeout=10)
+        response = requests.post(url, json=payload, timeout=10)
+        print(f"DEBUG -> Respuesta Telegram Status: {response.status_code}, Res: {response.text}")
     except Exception as e:
         print(f"Error enviando mensaje a Telegram: {e}")
 
