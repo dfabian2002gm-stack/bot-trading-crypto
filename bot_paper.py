@@ -26,7 +26,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Bot de Trading con gráficos visuales para Telegram + IA", 200
+    return "Bot de Trading (1H) con gráficos para Telegram + IA", 200
 
 # --- CONFIGURACIÓN DEL EXCHANGE EN MODO TESTNET ---
 exchange = ccxt.binance({
@@ -79,8 +79,9 @@ def get_fear_and_greed_index():
     return 50, "Neutral"
 
 def fetch_data():
-    """Descarga velas de 4h de BTC/USDT desde la Testnet de Binance."""
-    bars = exchange.fetch_ohlcv('BTC/USDT', timeframe='4h', limit=500)
+    """Descarga velas de 1h de BTC/USDT desde la Testnet de Binance."""
+    # CAMBIO 1: Modificado de '4h' a '1h'
+    bars = exchange.fetch_ohlcv('BTC/USDT', timeframe='1h', limit=500)
     df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
     return df
@@ -116,13 +117,13 @@ def generate_chart(df):
     plt.figure(figsize=(10, 5))
     plt.style.use('dark_background')
     
-    # Tomamos las últimas 60 velas para que el gráfico se vea detallado
+    # Tomamos las últimas 60 velas (60 horas) para que el gráfico se vea detallado
     subset = df.tail(60)
     plt.plot(subset['timestamp'], subset['close'], label='Precio BTC', color='#00ffcc', linewidth=1.5)
     plt.plot(subset['timestamp'], subset['ema_20'], label='EMA 20', color='#ff007f', linewidth=1)
     plt.plot(subset['timestamp'], subset['ema_50'], label='EMA 50', color='#ffcc00', linewidth=1)
     
-    plt.title('Análisis Técnico - Bot Testnet ($50)', fontsize=12, color='white')
+    plt.title('Análisis Técnico (1H) - Bot Testnet ($50)', fontsize=12, color='white')
     plt.xlabel('Fecha / Hora', color='gray')
     plt.ylabel('Precio (USDT)', color='gray')
     plt.legend(loc='upper left')
@@ -139,7 +140,7 @@ def generate_chart(df):
 
 def run_trading_bot():
     try:
-        print("Ejecutando ciclo del bot con gráficos y cuenta de $50...")
+        print("Ejecutando ciclo (1H) del bot con cuenta de $50...")
         df = fetch_data()
         df = calculate_indicators(df)
         
@@ -169,8 +170,8 @@ def run_trading_bot():
         btc_position = next((p for p in positions if p['symbol'] == 'BTC/USDT:USDT' and float(p['contracts']) > 0), None)
         
         report_msg = (
-            f"🧪 *Reporte Testnet ($50 Base)*\n"
-            f"• Apalancamiento: `{LEVERAGE}x`\n"
+            f"⏱️ *Reporte de Análisis (1 Hora)*\n"
+            f"🧪 *Cuenta Testnet ($50 Base)*\n"
             f"• Precio BTC: `${current_price:,.2f}`\n"
             f"• Sentimiento: `{fg_value} / 100 ({fg_text})`\n"
         )
@@ -208,7 +209,8 @@ def background_loop():
     def worker():
         while True:
             run_trading_bot()
-            time.sleep(14400) # Cada 4 horas
+            # CAMBIO 2: Esperar 1 hora (3600 segundos) en lugar de 4 horas
+            time.sleep(3600) 
             
     t = threading.Thread(target=worker, daemon=True)
     t.start()
