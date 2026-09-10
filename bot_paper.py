@@ -133,21 +133,17 @@ def run_trading_bot():
     try:
         now = datetime.datetime.utcnow().date()
         
-        # Obtener balance actual de la cuenta en Binance
         balance_info = exchange.fetch_balance()
         total_wallet_balance = float(balance_info['total']['USDT'])
         
-        # Ajuste de control diario (reinicio a medianoche UTC)
         if current_day != now:
             current_day = now
             starting_daily_balance = total_wallet_balance
             trading_halted_today = False
             send_telegram_message(f"🌅 *Nuevo día de trading ({current_day})*\nBalance inicial del día registrado: `${total_wallet_balance:,.2f} USDT`")
 
-        # Calcular rendimiento diario actual
         daily_pnl_pct = (total_wallet_balance - starting_daily_balance) / starting_daily_balance if starting_daily_balance > 0 else 0
 
-        # Verificar si ya se alcanzó la meta o el límite de pérdida del día
         if daily_pnl_pct >= PROFIT_TARGET_PCT:
             if not trading_halted_today:
                 trading_halted_today = True
@@ -157,7 +153,6 @@ def run_trading_bot():
         if daily_pnl_pct <= MAX_LOSS_PCT:
             if not trading_halted_today:
                 trading_halted_today = True
-                # Cerrar posiciones abiertas de emergencia por seguridad del límite diario
                 positions = exchange.fetch_positions()
                 for p in positions:
                     if p['symbol'] == 'BTC/USDT:USDT' and float(p['contracts']) > 0:
@@ -166,9 +161,8 @@ def run_trading_bot():
             return
 
         if trading_halted_today:
-            return  # Si ya cumplió meta o tocó pérdida, no opera más hoy
+            return
 
-        # Análisis de mercado habitual con IA
         df = fetch_data()
         df = calculate_indicators(df)
         current_price = df['close'].iloc[-1]
@@ -227,14 +221,21 @@ def run_trading_bot():
 def background_loop():
     import threading
     def worker():
+        # Pequeña pausa inicial para dar tiempo a que Gunicorn termine de levantar el servidor
+        time.sleep(5)
         while True:
-            run_trading_bot()
-            time.sleep(300) # Revisa el mercado constantemente cada 5 minutos sin apagar el script
+            try:
+                run_trading_bot()
+            except Exception as ex:
+                print(f"Error general en hilo: {ex}")
+            time.sleep(300) # Revisa cada 5 minutos
             
     t = threading.Thread(target=worker, daemon=True)
     t.start()
 
+# INICIAR EL BUCLE AUTOMÁTICAMENTE AL CARGAR EL MÓDULO (Compatible con Gunicorn)
+background_loop()
+
 if __name__ == "__main__":
-    background_loop()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
