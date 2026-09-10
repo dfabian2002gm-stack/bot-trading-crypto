@@ -18,8 +18,8 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 BINANCE_API_KEY = os.environ.get("BINANCE_API_KEY")
 BINANCE_SECRET = os.environ.get("BINANCE_SECRET")
 
-# Configuración de Capital y Riesgo Diario (Ajustado a tus ~$9 reales)
-INITIAL_CAPITAL = 9.0 
+# Configuración de Capital y Riesgo Diario (Ajustado a tus ~$9.42 exactos)
+INITIAL_CAPITAL = 9.42 
 LEVERAGE = 2  
 PROFIT_TARGET_PCT = 0.20  # +20% meta de ganancia diaria
 MAX_LOSS_PCT = -0.10      # -10% límite máximo de pérdida diaria
@@ -33,7 +33,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Bot de Trading Real con IA + Control de Riesgo", 200
+    return "Bot de Trading Real con IA + Control de Riesgo ($9.42)", 200
 
 # Inicializar exchange para Cuenta Real (Mainnet)
 try:
@@ -43,7 +43,6 @@ try:
         'enableRateLimit': True,
         'options': {'defaultType': 'future'}
     })
-    # Nota: Ya no usamos sandbox_mode para conectar directamente a binance.com
     print("Exchange de Binance Real (Mainnet) configurado correctamente.")
 except Exception as e:
     print(f"Error al configurar CCXT Binance: {e}")
@@ -120,7 +119,7 @@ def generate_chart(df):
     plt.plot(subset['timestamp'], subset['close'], label='Precio BTC', color='#00ffcc', linewidth=1.5)
     plt.plot(subset['timestamp'], subset['ema_20'], label='EMA 20', color='#ff007f', linewidth=1)
     plt.plot(subset['timestamp'], subset['ema_50'], label='EMA 50', color='#ffcc00', linewidth=1)
-    plt.title('Control Diario de Riesgo - Bot Real ($9 Base)', fontsize=12, color='white')
+    plt.title('Control Diario de Riesgo - Bot Real ($9.42 Base)', fontsize=12, color='white')
     plt.xlabel('Fecha / Hora', color='gray')
     plt.ylabel('Precio (USDT)', color='gray')
     plt.legend(loc='upper left')
@@ -138,7 +137,7 @@ def generate_chart(df):
 def run_trading_bot():
     global current_day, starting_daily_balance, trading_halted_today
     
-    print("Iniciando ciclo de trading real...")
+    print("Iniciando ciclo de trading real ($9.42)...")
     try:
         now = datetime.datetime.utcnow().date()
         
@@ -198,7 +197,7 @@ def run_trading_bot():
         btc_position = next((p for p in positions if p['symbol'] == 'BTC/USDT:USDT' and float(p['contracts']) > 0), None)
         
         report_msg = (
-            f"📊 *Monitoreo Activo (Cuenta Real)*\n"
+            f"📊 *Monitoreo Activo (Cuenta Real - $9.42)*\n"
             f"• Balance actual: `${total_wallet_balance:,.2f} USDT`\n"
             f"• Rendimiento hoy: `{daily_pnl_pct*100:+.2f}%` (Meta: +20% | Límite: -10%)\n"
             f"• Precio BTC: `${current_price:,.2f}`\n"
@@ -208,7 +207,7 @@ def run_trading_bot():
             if fg_text in ["Extreme Greed", "Extreme Fear"]:
                 report_msg += f"⚠️ *Filtro de Sentimiento:* Mercado en {fg_text}."
             elif prediction == 1:
-                amount = 0.0001  # Lote pequeño optimizado para tus ~$9
+                amount = 0.0001  # Lote seguro para tus $9.42 con apalancamiento 2x
                 exchange.create_market_buy_order('BTC/USDT', amount)
                 report_msg += f"🟢 *Orden LONG real abierta* (`0.0001 BTC`)"
             else:
@@ -233,7 +232,7 @@ def background_loop():
     import threading
     def worker():
         time.sleep(5) 
-        send_telegram_message("🚀 *¡El bot conectado a tu cuenta REAL de Binance se ha iniciado!*")
+        send_telegram_message("🚀 *¡El bot con tus $9.42 reales y alertas Telegram se ha iniciado!*")
         
         while True:
             try:
@@ -248,5 +247,5 @@ def background_loop():
 background_loop()
 
 if __name__ == "__main__":
-    port = int(os.environ.0, 5000) if False else int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
