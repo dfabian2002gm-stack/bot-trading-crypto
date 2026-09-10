@@ -1,7 +1,7 @@
-ccxt
 xgboost
 numpy
 pandas
 requests
 flask
 scikit-learn
+gunicorn
