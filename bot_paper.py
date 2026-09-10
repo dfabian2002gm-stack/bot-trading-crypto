@@ -12,14 +12,14 @@ import matplotlib.pyplot as plt
 from flask import Flask
 from xgboost import XGBClassifier
 
-# --- CONFIGURACIÓN DE ENTORNO ---
+# --- CONFIGURACIÓN DE ENTORNO (CUENTA REAL) ---
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-BINANCE_API_KEY = os.environ.get("BINANCE_TESTNET_API_KEY")
-BINANCE_SECRET = os.environ.get("BINANCE_TESTNET_SECRET")
+BINANCE_API_KEY = os.environ.get("BINANCE_API_KEY")
+BINANCE_SECRET = os.environ.get("BINANCE_SECRET")
 
-# Configuración de Capital y Riesgo Diario (Ajustado a tus $5 actuales)
-INITIAL_CAPITAL = 5.0 
+# Configuración de Capital y Riesgo Diario (Ajustado a tus ~$9 reales)
+INITIAL_CAPITAL = 9.0 
 LEVERAGE = 2  
 PROFIT_TARGET_PCT = 0.20  # +20% meta de ganancia diaria
 MAX_LOSS_PCT = -0.10      # -10% límite máximo de pérdida diaria
@@ -33,9 +33,9 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-    return "Bot de Trading con Control de Riesgo Diario + IA", 200
+    return "Bot de Trading Real con IA + Control de Riesgo", 200
 
-# Inicializar exchange con control de errores
+# Inicializar exchange para Cuenta Real (Mainnet)
 try:
     exchange = ccxt.binance({
         'apiKey': BINANCE_API_KEY,
@@ -43,8 +43,8 @@ try:
         'enableRateLimit': True,
         'options': {'defaultType': 'future'}
     })
-    exchange.set_sandbox_mode(True)
-    print("Exchange de Binance Testnet configurado correctamente.")
+    # Nota: Ya no usamos sandbox_mode para conectar directamente a binance.com
+    print("Exchange de Binance Real (Mainnet) configurado correctamente.")
 except Exception as e:
     print(f"Error al configurar CCXT Binance: {e}")
 
@@ -120,7 +120,7 @@ def generate_chart(df):
     plt.plot(subset['timestamp'], subset['close'], label='Precio BTC', color='#00ffcc', linewidth=1.5)
     plt.plot(subset['timestamp'], subset['ema_20'], label='EMA 20', color='#ff007f', linewidth=1)
     plt.plot(subset['timestamp'], subset['ema_50'], label='EMA 50', color='#ffcc00', linewidth=1)
-    plt.title('Control Diario de Riesgo - Bot IA ($5 Base)', fontsize=12, color='white')
+    plt.title('Control Diario de Riesgo - Bot Real ($9 Base)', fontsize=12, color='white')
     plt.xlabel('Fecha / Hora', color='gray')
     plt.ylabel('Precio (USDT)', color='gray')
     plt.legend(loc='upper left')
@@ -138,7 +138,7 @@ def generate_chart(df):
 def run_trading_bot():
     global current_day, starting_daily_balance, trading_halted_today
     
-    print("Iniciando ciclo de trading...")
+    print("Iniciando ciclo de trading real...")
     try:
         now = datetime.datetime.utcnow().date()
         
@@ -149,14 +149,14 @@ def run_trading_bot():
             current_day = now
             starting_daily_balance = total_wallet_balance
             trading_halted_today = False
-            send_telegram_message(f"🌅 *Nuevo día de trading ({current_day})*\nBalance inicial del día registrado: `${total_wallet_balance:,.2f} USDT`")
+            send_telegram_message(f"🌅 *Nuevo día de trading real ({current_day})*\nBalance inicial registrado: `${total_wallet_balance:,.2f} USDT`")
 
         daily_pnl_pct = (total_wallet_balance - starting_daily_balance) / starting_daily_balance if starting_daily_balance > 0 else 0
 
         if daily_pnl_pct >= PROFIT_TARGET_PCT:
             if not trading_halted_today:
                 trading_halted_today = True
-                send_telegram_message(f"🎯 *¡Meta diaria del +20% alcanzada!* (${total_wallet_balance:,.2f} USDT). El bot pausará operaciones hasta mañana para asegurar ganancias.")
+                send_telegram_message(f"🎯 *¡Meta diaria del +20% alcanzada!* (${total_wallet_balance:,.2f} USDT). El bot pausa operaciones hasta mañana.")
             return
 
         if daily_pnl_pct <= MAX_LOSS_PCT:
@@ -166,7 +166,7 @@ def run_trading_bot():
                 for p in positions:
                     if p['symbol'] == 'BTC/USDT:USDT' and float(p['contracts']) > 0:
                         exchange.create_market_sell_order('BTC/USDT', float(p['contracts']))
-                send_telegram_message(f"🛑 *Límite de pérdida diaria alcanzado ({daily_pnl_pct*100:.1f}%)*. Posiciones cerradas. El bot descansa hasta mañana.")
+                send_telegram_message(f"🛑 *Límite de pérdida diaria alcanzado ({daily_pnl_pct*100:.1f}%)*. Posiciones cerradas.")
             return
 
         if trading_halted_today:
@@ -198,7 +198,7 @@ def run_trading_bot():
         btc_position = next((p for p in positions if p['symbol'] == 'BTC/USDT:USDT' and float(p['contracts']) > 0), None)
         
         report_msg = (
-            f"📊 *Monitoreo Activo (Control Diario)*\n"
+            f"📊 *Monitoreo Activo (Cuenta Real)*\n"
             f"• Balance actual: `${total_wallet_balance:,.2f} USDT`\n"
             f"• Rendimiento hoy: `{daily_pnl_pct*100:+.2f}%` (Meta: +20% | Límite: -10%)\n"
             f"• Precio BTC: `${current_price:,.2f}`\n"
@@ -208,9 +208,9 @@ def run_trading_bot():
             if fg_text in ["Extreme Greed", "Extreme Fear"]:
                 report_msg += f"⚠️ *Filtro de Sentimiento:* Mercado en {fg_text}."
             elif prediction == 1:
-                amount = 0.0001  # Ajustado para operar con tus $5 de margen
+                amount = 0.0001  # Lote pequeño optimizado para tus ~$9
                 exchange.create_market_buy_order('BTC/USDT', amount)
-                report_msg += f"🟢 *Orden LONG abierta* (`0.0001 BTC`)"
+                report_msg += f"🟢 *Orden LONG real abierta* (`0.0001 BTC`)"
             else:
                 report_msg += "⚪ *Buscando entradas:* IA en espera."
         else:
@@ -218,22 +218,22 @@ def run_trading_bot():
             pnl_pct = (current_price - entry_price) / entry_price * LEVERAGE
             if pnl_pct <= -0.015 or pnl_pct >= 0.03:
                 exchange.create_market_sell_order('BTC/USDT', float(btc_position['contracts']))
-                report_msg += f"🏁 Posición cerrada por Take-Profit/Stop-Loss técnico. PnL: `{pnl_pct*100:+.2f}%`"
+                report_msg += f"🏁 Posición cerrada por Take-Profit/Stop-Loss. PnL: `{pnl_pct*100:+.2f}%`"
             else:
                 report_msg += f"📈 Posición abierta. PnL actual: `{pnl_pct*100:+.2f}%`"
                 
         chart_bytes = generate_chart(df)
         send_telegram_photo(chart_bytes, report_msg)
-        print("Ciclo de trading ejecutado y enviado con éxito a Telegram.")
+        print("Ciclo de trading real ejecutado y enviado con éxito a Telegram.")
         
     except Exception as e:
-        print(f"❌ Error crítico en ciclo de trading: {e}")
+        print(f"❌ Error crítico en ciclo de trading real: {e}")
 
 def background_loop():
     import threading
     def worker():
         time.sleep(5) 
-        send_telegram_message("🚀 *¡El bot con IA y control de riesgo se ha iniciado correctamente!*")
+        send_telegram_message("🚀 *¡El bot conectado a tu cuenta REAL de Binance se ha iniciado!*")
         
         while True:
             try:
@@ -248,5 +248,5 @@ def background_loop():
 background_loop()
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.0, 5000) if False else int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
