@@ -6,3 +6,4 @@ requests
 flask
 scikit-learn
 gunicorn
+matplotlib
