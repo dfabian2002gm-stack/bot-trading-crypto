@@ -18,8 +18,8 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 BINANCE_API_KEY = os.environ.get("BINANCE_TESTNET_API_KEY")
 BINANCE_SECRET = os.environ.get("BINANCE_TESTNET_SECRET")
 
-# Configuración de Capital y Riesgo Diario
-INITIAL_CAPITAL = 50.0 
+# Configuración de Capital y Riesgo Diario (Ajustado a tus $5 actuales)
+INITIAL_CAPITAL = 5.0 
 LEVERAGE = 2  
 PROFIT_TARGET_PCT = 0.20  # +20% meta de ganancia diaria
 MAX_LOSS_PCT = -0.10      # -10% límite máximo de pérdida diaria
@@ -120,7 +120,7 @@ def generate_chart(df):
     plt.plot(subset['timestamp'], subset['close'], label='Precio BTC', color='#00ffcc', linewidth=1.5)
     plt.plot(subset['timestamp'], subset['ema_20'], label='EMA 20', color='#ff007f', linewidth=1)
     plt.plot(subset['timestamp'], subset['ema_50'], label='EMA 50', color='#ffcc00', linewidth=1)
-    plt.title('Control Diario de Riesgo - Bot IA ($50 Base)', fontsize=12, color='white')
+    plt.title('Control Diario de Riesgo - Bot IA ($5 Base)', fontsize=12, color='white')
     plt.xlabel('Fecha / Hora', color='gray')
     plt.ylabel('Precio (USDT)', color='gray')
     plt.legend(loc='upper left')
@@ -208,9 +208,9 @@ def run_trading_bot():
             if fg_text in ["Extreme Greed", "Extreme Fear"]:
                 report_msg += f"⚠️ *Filtro de Sentimiento:* Mercado en {fg_text}."
             elif prediction == 1:
-                amount = 0.001 
+                amount = 0.0001  # Ajustado para operar con tus $5 de margen
                 exchange.create_market_buy_order('BTC/USDT', amount)
-                report_msg += f"🟢 *Orden LONG abierta* (`0.001 BTC`)"
+                report_msg += f"🟢 *Orden LONG abierta* (`0.0001 BTC`)"
             else:
                 report_msg += "⚪ *Buscando entradas:* IA en espera."
         else:
@@ -232,8 +232,7 @@ def run_trading_bot():
 def background_loop():
     import threading
     def worker():
-        time.sleep(5) # Esperar a que Flask/Gunicorn levanten
-        # Mensaje de arranque inicial con éxito
+        time.sleep(5) 
         send_telegram_message("🚀 *¡El bot con IA y control de riesgo se ha iniciado correctamente!*")
         
         while True:
@@ -241,7 +240,7 @@ def background_loop():
                 run_trading_bot()
             except Exception as ex:
                 print(f"Error general en hilo de trabajo: {ex}")
-            time.sleep(300) # Esperar 5 minutos para el siguiente ciclo
+            time.sleep(300) 
             
     t = threading.Thread(target=worker, daemon=True)
     t.start()
