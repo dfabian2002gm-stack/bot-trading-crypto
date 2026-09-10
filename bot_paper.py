@@ -8,12 +8,12 @@ import pandas as pd
 import requests
 from flask import Flask
 
-# Configuración inicial de Flask para mantener vivo el servicio web en Render (Gunicorn busca 'app')
+# Configuración inicial de Flask para Render (Gunicorn busca 'app')
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot de Trading XGBoost en funcionamiento (Paper Trading con PnL)", 200
+    return "Bot de Trading Profesional XGBoost (Futuros / Paper Trading) activo", 200
 
 def run_flask():
     app.run(host='0.0.0.0', port=10000)
@@ -33,111 +33,173 @@ def send_telegram_message(message):
     except Exception as e:
         print(f"Error enviando mensaje a Telegram: {e}")
 
-# Conexión a Kraken (Exchange público para datos y simulación)
+# Conexión a Kraken (Exchange público)
 exchange = ccxt.kraken()
 
-# Variables de simulación (Paper Trading y PnL)
+# Variables de simulación de Futuros (Paper Trading)
 paper_balance_usdt = 1000.0  # Capital inicial virtual
-paper_btc_held = 0.0
-position_status = "FLAT"       # FLAT (sin posición) o LONG (comprado)
+leverage = 2.0                 # Apalancamiento controlado (2x)
+position_status = "FLAT"       # FLAT, LONG o SHORT
 entry_price = 0.0
+position_size = 0.0
+take_profit_price = 0.0
+stop_loss_price = 0.0
 
 def fetch_data():
     try:
-        # Descarga datos de velas de 1 hora para BTC/USDT desde Kraken
-        bars = exchange.fetch_ohlcv('BTC/USDT', timeframe='1h', limit=100)
-        df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        # Descarga datos de 1 hora para operativa y cálculo de ATR
+        bars_1h = exchange.fetch_ohlcv('BTC/USDT', timeframe='1h', limit=150)
+        df_1h = pd.DataFrame(bars_1h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         
-        # Indicadores técnicos básicos para XGBoost
-        df['returns'] = df['close'].pct_change()
-        df['sma'] = df['close'].rolling(window=10).mean()
-        df['volatility'] = df['returns'].rolling(window=10).std()
-        df.dropna(inplace=True)
-        return df
+        # Descarga datos de 4 horas para el Filtro de Tendencia Macro
+        bars_4h = exchange.fetch_ohlcv('BTC/USDT', timeframe='4h', limit=50)
+        df_4h = pd.DataFrame(bars_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        
+        # Indicadores técnicos en 1h
+        df_1h['returns'] = df_1h['close'].pct_change()
+        df_1h['sma'] = df_1h['close'].rolling(window=14).mean()
+        df_1h['volatility'] = df_1h['returns'].rolling(window=14).std()
+        
+        # Cálculo de ATR (Average True Range) para Stop Loss / Take Profit dinámicos
+        high_low = df_1h['high'] - df_1h['low']
+        high_close = np.abs(df_1h['high'] - df_1h['close'].shift())
+        low_close = np.abs(df_1h['low'] - df_1h['close'].shift())
+        true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+        df_1h['atr'] = true_range.rolling(window=14).mean()
+        
+        # Filtro Macro 4h (Media Móvil simple de 4h)
+        df_1h['macro_trend'] = df_4h['close'].rolling(window=10).mean().iloc[-1] # Simplificado para alineación
+        
+        df_1h.dropna(inplace=True)
+        return df_1h
     except Exception as e:
         print(f"Error obteniendo datos de Kraken: {e}")
         return None
 
 def train_and_predict(df):
     try:
-        features = ['returns', 'sma', 'volatility', 'volume']
-        # Definir objetivo: 1 si el precio sube en la siguiente vela, 0 si baja
+        features = ['returns', 'sma', 'volatility', 'volume', 'atr']
+        # Objetivo: 1 si sube en la siguiente vela, 0 si baja
         df['target'] = np.where(df['close'].shift(-1) > df['close'], 1, 0)
         
+        if len(df) < 20:
+            return 0, 50.0
+            
         X = df[features].iloc[:-1]
         y = df['target'].iloc[:-1]
         
-        model = xgb.XGBClassifier(n_estimators=50, max_depth=3, learning_rate=0.05, random_state=42)
+        model = xgb.XGBClassifier(n_estimators=100, max_depth=4, learning_rate=0.03, random_state=42)
         model.fit(X, y)
         
-        # Predecir sobre la última vela disponible
         latest_features = df[features].iloc[[-1]]
-        prediction = model.predict(latest_features)[0]
-        return prediction
+        prediction = int(model.predict(latest_features)[0])
+        probabilities = model.predict_proba(latest_features)[0]
+        confidence = float(probabilities[prediction] * 100)
+        
+        return prediction, confidence
     except Exception as e:
         print(f"Error entrenando modelo XGBoost: {e}")
-        return None
+        return 0, 50.0
 
 def bot_loop():
-    global paper_balance_usdt, paper_btc_held, position_status, entry_price
+    global paper_balance_usdt, position_status, entry_price, position_size, take_profit_price, stop_loss_price
     
-    print("Iniciando bucle de trading autónomo (Cada 30 minutos)...")
-    send_telegram_message("🤖 *Bot de Trading Iniciado*\nModo Paper Trading activado con reportes cada 30 minutos.")
+    print("Iniciando bot de futuros avanzado...")
+    send_telegram_message("🚀 *Bot de Futuros XGBoost Activado*\nModo profesional con apalancamiento 2x, Long/Short y gestión por ATR.")
     
     while True:
         try:
-            print("Ejecutando ciclo de análisis...")
             df = fetch_data()
             if df is not None and not df.empty:
                 current_price = df['close'].iloc[-1]
-                prediction = train_and_predict(df)
+                current_atr = df['atr'].iloc[-1]
+                macro_sma = df['sma'].iloc[-1] # Referencia de tendencia local/macro
                 
-                print(f"Precio actual BTC: ${current_price:.2f} | Predicción XGBoost: {prediction}")
+                prediction, confidence = train_and_predict(df)
                 
-                # Reporte obligatorio en cada ciclo para confirmar que está vivo
-                status_msg = (f"📊 *Reporte Periódico (30 min)*\n"
+                # Definir filtro macro (Alcista si precio > SMA macro, Bajista si precio < SMA macro)
+                macro_filter = "Alcista 🟢" if current_price >= macro_sma else "Bajista 🔴"
+                
+                # --- GESTIÓN DE POSICIÓN ABIERICA (Revisión de Stop Loss / Take Profit) ---
+                if position_status == "LONG":
+                    if current_price >= take_profit_price or current_price <= stop_loss_price:
+                        # Cierre por SL o TP
+                        pnl_usd = (current_price - entry_price) * position_size
+                        paper_balance_usdt += (position_size * entry_price) + pnl_usd
+                        pnl_pct = ((current_price - entry_price) / entry_price) * 100 * leverage
+                        
+                        msg = (f"🎯 *CIERRE DE POSICIÓN LONG (SL/TP)*\n"
+                               f"• Precio Salida: `${current_price:.2f}`\n"
+                               f"• PnL: `${pnl_usd:+.2f}` (`{pnl_pct:+.2f}%`)\n"
+                               f"• Saldo Virtual: `${paper_balance_usdt:.2f}`")
+                        send_telegram_message(msg)
+                        position_status = "FLAT"
+                        
+                elif position_status == "SHORT":
+                    if current_price <= take_profit_price or current_price >= stop_loss_price:
+                        # Cierre por SL o TP en Short
+                        pnl_usd = (entry_price - current_price) * position_size
+                        paper_balance_usdt += (position_size * entry_price) + pnl_usd
+                        pnl_pct = ((entry_price - current_price) / entry_price) * 100 * leverage
+                        
+                        msg = (f"🎯 *CIERRE DE POSICIÓN SHORT (SL/TP)*\n"
+                               f"• Precio Salida: `${current_price:.2f}`\n"
+                               f"• PnL: `${pnl_usd:+.2f}` (`{pnl_pct:+.2f}%`)\n"
+                               f"• Saldo Virtual: `${paper_balance_usdt:.2f}`")
+                        send_telegram_message(msg)
+                        position_status = "FLAT"
+
+                # --- APERTURA DE NUEVAS POSICIONES SEGÚN SEÑAL Y FILTRO ---
+                if position_status == "FLAT":
+                    # Señal LONG (IA predice subida y tendencia macro es alcista o confianza alta)
+                    if prediction == 1 and macro_filter == "Alcista 🟢" and confidence >= 53.0:
+                        entry_price = current_price
+                        position_size = (paper_balance_usdt * leverage) / entry_price
+                        take_profit_price = entry_price + (2.0 * current_atr)
+                        stop_loss_price = entry_price - (1.5 * current_atr)
+                        position_status = "LONG"
+                        
+                        msg = (f"📈 *SEÑAL DE COMPRA (LONG 2x)*\n"
+                               f"• Precio Entrada: `${entry_price:.2f}`\n"
+                               f"• Confianza IA: `{confidence:.1f}%`\n"
+                               f"• Take Profit: `${take_profit_price:.2f}`\n"
+                               f"• Stop Loss: `${stop_loss_price:.2f}`\n"
+                               f"• Filtro Macro: {macro_filter}")
+                        send_telegram_message(msg)
+                        
+                    # Señal SHORT (IA predice bajada y tendencia macro es bajista)
+                    elif prediction == 0 and macro_filter == "Bajista 🔴" and confidence >= 53.0:
+                        entry_price = current_price
+                        position_size = (paper_balance_usdt * leverage) / entry_price
+                        take_profit_price = entry_price - (2.0 * current_atr)
+                        stop_loss_price = entry_price + (1.5 * current_atr)
+                        position_status = "SHORT"
+                        
+                        msg = (f"📉 *SEÑAL DE VENTA (SHORT 2x)*\n"
+                               f"• Precio Entrada: `${entry_price:.2f}`\n"
+                               f"• Confianza IA: `{confidence:.1f}%`\n"
+                               f"• Take Profit: `${take_profit_price:.2f}`\n"
+                               f"• Stop Loss: `${stop_loss_price:.2f}`\n"
+                               f"• Filtro Macro: {macro_filter}")
+                        send_telegram_message(msg)
+
+                # Reporte periódico de estado cada 30 minutos
+                status_msg = (f"📊 *Reporte Periódico de Futuros (30 min)*\n"
                               f"• Precio BTC: `${current_price:.2f}`\n"
-                              f"• Predicción: `{prediction}`\n"
-                              f"• Estado: `{position_status}`\n"
+                              f"• Predicción IA: `{prediction}` (Conf: `{confidence:.1f}%`)\n"
+                              f"• Estado Posición: `{position_status}`\n"
+                              f"• Filtro Macro: {macro_filter}\n"
                               f"• Saldo Virtual: `${paper_balance_usdt:.2f}`")
                 send_telegram_message(status_msg)
                 
-                # Lógica de Paper Trading con PnL
-                if prediction == 1 and position_status == "FLAT":
-                    paper_btc_held = (paper_balance_usdt * 0.99) / current_price 
-                    entry_price = current_price
-                    paper_balance_usdt = 0.0
-                    position_status = "LONG"
-                    
-                    msg = (f"🟢 *SIMULACIÓN DE COMPRA (LONG)*\n"
-                           f"• Precio de Entrada: `${entry_price:.2f}`\n"
-                           f"• BTC Adquirido: `{paper_btc_held:.5f}`")
-                    send_telegram_message(msg)
-                    
-                elif prediction == 0 and position_status == "LONG":
-                    sale_proceeds = paper_btc_held * current_price * 0.99 
-                    pnl_usd = sale_proceeds - (paper_btc_held * entry_price)
-                    pnl_pct = (current_price - entry_price) / entry_price * 100
-                    
-                    paper_balance_usdt = sale_proceeds
-                    paper_btc_held = 0.0
-                    position_status = "FLAT"
-                    
-                    msg = (f"🔴 *SIMULACIÓN DE VENTA / CIERRE*\n"
-                           f"• Precio de Salida: `${current_price:.2f}`\n"
-                           f"• PnL de la Operación: `${pnl_usd:.2f}` (`{pnl_pct:+.2f}%`)\n"
-                           f"• Saldo Virtual Total: `${paper_balance_usdt:.2f}`")
-                    send_telegram_message(msg)
-            
         except Exception as e:
             print(f"Error en el ciclo del bot: {e}")
-            send_telegram_message(f"⚠️ *Error en el Bot*: {e}")
+            send_telegram_message(f"⚠️ *Error crítico en el Bot*: {e}")
             
         # Esperar 30 minutos para el próximo ciclo
         time.sleep(1800)
 
-# Iniciar el bucle del bot en un hilo en segundo plano al cargar el módulo en Render
+# Iniciar hilo en segundo plano
 bot_thread = threading.Thread(target=bot_loop, daemon=True)
 bot_thread.start()
 
