@@ -28,7 +28,8 @@ exchange = ccxt.binance({
 exchange.set_sandbox_mode(True)  # Modo de prueba (Paper Trading)
 
 SYMBOL = 'BTC/USDT'
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN', '')
+# Usamos el nombre exacto que tienes configurado en Render
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '')
 
 # Variables de Estado del Paper Trading
